@@ -1,0 +1,15 @@
+[Unit]
+Description=SleepGuard early-boot activation guard
+DefaultDependencies=no
+Before=display-manager.service
+After=local-fs.target time-sync.target
+ConditionPathExists=@CONFIG_PATH@
+
+[Service]
+Type=oneshot
+Environment=SLEEPGUARD_CONFIG=@CONFIG_PATH@
+ExecStart=/usr/local/bin/sleepguard-guard --config @CONFIG_PATH@
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

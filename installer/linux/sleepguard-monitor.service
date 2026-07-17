@@ -1,0 +1,14 @@
+[Unit]
+Description=SleepGuard monitor (user session)
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@APP_BIN@
+Restart=always
+RestartSec=5
+Environment=SLEEPGUARD_CONFIG=@CONFIG_PATH@
+
+[Install]
+WantedBy=default.target

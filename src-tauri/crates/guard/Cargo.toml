@@ -1,0 +1,14 @@
+[package]
+name = "sleepguard-guard"
+version = "0.1.0"
+edition = "2021"
+description = "Headless early-boot activation guard for SleepGuard (Linux)"
+
+[[bin]]
+name = "sleepguard-guard"
+path = "src/main.rs"
+
+[dependencies]
+sleepguard-core = { path = "../core" }
+chrono = "0.4.45"
+clap = { version = "4", features = ["derive"] }

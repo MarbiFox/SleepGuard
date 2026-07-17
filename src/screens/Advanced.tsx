@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { AppConfig, OverrideConfig } from "../App";
+import { formatTimeInput, handleTimeBlur } from "../utils/time";
 
 interface AdvancedProps {
   config: AppConfig;
@@ -22,14 +23,6 @@ export default function Advanced({ config, onSave, onBack }: AdvancedProps) {
     config.schedule.overrides
   );
 
-  const formatTimeInput = (value: string) => {
-    let val = value.replace(/\D/g, "");
-    if (val.length >= 3) {
-      val = val.substring(0, 2) + ":" + val.substring(2, 4);
-    }
-    return val;
-  };
-
   const handleChange = (day: string, field: "shutdown" | "activation", value: string) => {
     setSchedule((prev) => ({
       ...prev,
@@ -41,10 +34,15 @@ export default function Advanced({ config, onSave, onBack }: AdvancedProps) {
   };
 
   const handleBlur = (day: string, field: "shutdown" | "activation", value: string) => {
-    if (value && value.length === 4 && !value.includes(":")) {
-      const formatted = value.substring(0, 2) + ":" + value.substring(2, 4);
-      handleChange(day, field, formatted);
-    }
+    handleTimeBlur(value, (clamped) => {
+      setSchedule((prev) => ({
+        ...prev,
+        [day]: {
+          ...(prev[day] || { shutdown: "", activation: "" }),
+          [field]: clamped,
+        },
+      }));
+    });
   };
 
   const clearDay = (day: string) => {

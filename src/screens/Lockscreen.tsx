@@ -1,17 +1,24 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 
 interface LockscreenProps {
-  onUnlockTest: () => void; // Solo para poder probar salir de la pantalla de bloqueo
+  mode: "preview" | "real";
+  activationTime: string;
+  onUnlockTest?: () => void;
 }
 
-export default function Lockscreen({ onUnlockTest }: LockscreenProps) {
+export default function Lockscreen({ mode, activationTime, onUnlockTest }: LockscreenProps) {
   const [timeLeft, setTimeLeft] = useState(30);
+  const shutdownFired = useRef(false);
 
   useEffect(() => {
-    // Bloquear el click derecho y teclas comunes para testear visualmente (aunque en app nativa lo hace el SO)
     const preventContext = (e: MouseEvent) => e.preventDefault();
     const preventKeys = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') e.preventDefault(); // Permitir Escape solo para la prueba
+      if (mode === "real") {
+        e.preventDefault();
+        return;
+      }
+      if (e.key !== "Escape") e.preventDefault();
     };
 
     window.addEventListener("contextmenu", preventContext);
@@ -21,27 +28,45 @@ export default function Lockscreen({ onUnlockTest }: LockscreenProps) {
       window.removeEventListener("contextmenu", preventContext);
       window.removeEventListener("keydown", preventKeys);
     };
-  }, []);
+  }, [mode]);
 
   useEffect(() => {
-    if (timeLeft <= 0) return;
-    
+    if (timeLeft <= 0) {
+      if (mode === "real" && !shutdownFired.current) {
+        shutdownFired.current = true;
+        invoke("execute_shutdown_now").catch((err) =>
+          console.error("Failed to execute shutdown:", err)
+        );
+      }
+      return;
+    }
+
     const timer = setInterval(() => {
       setTimeLeft((prev) => prev - 1);
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timeLeft]);
+  }, [timeLeft, mode]);
 
   return (
     <main className="lock-container window">
-      {/* Botón oculto/emergencia para salir de la demo */}
-      <button 
-        onClick={onUnlockTest} 
-        style={{ position: 'absolute', top: 20, right: 20, opacity: 0.1, background: 'transparent', color: '#fff', border: '1px solid #fff' }}
-      >
-        Exit Test
-      </button>
+      {mode === "preview" && onUnlockTest && (
+        <button
+          onClick={onUnlockTest}
+          style={{
+            position: "absolute",
+            top: 20,
+            right: 20,
+            opacity: 0.1,
+            background: "transparent",
+            color: "#fff",
+            border: "1px solid #fff",
+            cursor: "pointer",
+          }}
+        >
+          Exit Test
+        </button>
+      )}
 
       <div className="lock-icon-wrapper">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
@@ -50,11 +75,12 @@ export default function Lockscreen({ onUnlockTest }: LockscreenProps) {
       </div>
 
       <h1 className="headline">
-        Este equipo estará disponible a las <span className="time-target">07:00</span>
+        Este equipo estará disponible a las{" "}
+        <span className="time-target">{activationTime}</span>
       </h1>
 
       <div className="countdown">
-        Apagando en <span>{timeLeft.toString().padStart(2, '0')}</span>s...
+        Apagando en <span>{timeLeft.toString().padStart(2, "0")}</span>s...
       </div>
     </main>
   );

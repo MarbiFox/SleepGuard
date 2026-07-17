@@ -4,8 +4,9 @@ import "./App.css";
 import Main from "./screens/Main";
 import Advanced from "./screens/Advanced";
 import Lockscreen from "./screens/Lockscreen";
+import Onboarding from "./screens/Onboarding";
 
-type Screen = "main" | "advanced" | "lockscreen";
+type Screen = "onboarding" | "main" | "advanced" | "lockscreen";
 
 export interface OverrideConfig {
   shutdown: string;
@@ -24,15 +25,39 @@ export interface AppConfig {
   schedule: ScheduleConfig;
 }
 
+interface LaunchModeResponse {
+  mode: "normal" | "guard";
+  activation?: string;
+}
+
 function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>("main");
+  const [currentScreen, setCurrentScreen] = useState<Screen | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [guardActivation, setGuardActivation] = useState<string | null>(null);
 
   useEffect(() => {
-    // Cargar configuración al iniciar
-    invoke<AppConfig>("load_config")
-      .then((cfg) => setConfig(cfg))
-      .catch((err) => console.error("Failed to load config:", err));
+    async function bootstrap() {
+      try {
+        const launch = await invoke<LaunchModeResponse>("get_launch_mode");
+        if (launch.mode === "guard" && launch.activation) {
+          setGuardActivation(launch.activation);
+          setCurrentScreen("lockscreen");
+          // Still load config for consistency, but UI is locked to guard
+          const cfg = await invoke<AppConfig>("load_config");
+          setConfig(cfg);
+          return;
+        }
+
+        const first = await invoke<boolean>("is_first_launch");
+        const cfg = await invoke<AppConfig>("load_config");
+        setConfig(cfg);
+        setCurrentScreen(first ? "onboarding" : "main");
+      } catch (err) {
+        console.error("Failed to bootstrap:", err);
+      }
+    }
+
+    bootstrap();
   }, []);
 
   const saveConfig = async (newConfig: AppConfig) => {
@@ -44,30 +69,48 @@ function App() {
     }
   };
 
-  if (!config) {
-    return <div style={{color: "white"}}>Cargando configuración...</div>;
+  const finishOnboarding = async (newConfig: AppConfig) => {
+    await saveConfig(newConfig);
+    setCurrentScreen("main");
+  };
+
+  if (!config || !currentScreen) {
+    return <div style={{ color: "white" }}>Cargando configuración...</div>;
+  }
+
+  if (guardActivation) {
+    return <Lockscreen mode="real" activationTime={guardActivation} />;
   }
 
   return (
     <>
+      {currentScreen === "onboarding" && (
+        <Onboarding
+          detectedOs={config.os}
+          config={config}
+          onConfirm={finishOnboarding}
+        />
+      )}
       {currentScreen === "main" && (
-        <Main 
+        <Main
           config={config}
           onSave={saveConfig}
-          onGoToAdvanced={() => setCurrentScreen("advanced")} 
-          onPreviewLockscreen={() => setCurrentScreen("lockscreen")} 
+          onGoToAdvanced={() => setCurrentScreen("advanced")}
+          onPreviewLockscreen={() => setCurrentScreen("lockscreen")}
         />
       )}
       {currentScreen === "advanced" && (
-        <Advanced 
+        <Advanced
           config={config}
           onSave={saveConfig}
-          onBack={() => setCurrentScreen("main")} 
+          onBack={() => setCurrentScreen("main")}
         />
       )}
       {currentScreen === "lockscreen" && (
-        <Lockscreen 
-          onUnlockTest={() => setCurrentScreen("main")} 
+        <Lockscreen
+          mode="preview"
+          activationTime={config.schedule.activation_default || "07:00"}
+          onUnlockTest={() => setCurrentScreen("main")}
         />
       )}
     </>
