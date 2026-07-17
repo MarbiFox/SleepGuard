@@ -69,7 +69,7 @@ impl Default for AppConfig {
             } else {
                 "linux".to_string()
             },
-            enabled: true,
+            enabled: false,
             schedule: ScheduleConfig {
                 shutdown_default: "23:30".to_string(),
                 activation_default: "07:00".to_string(),
