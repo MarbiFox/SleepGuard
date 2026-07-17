@@ -49,7 +49,7 @@ export default function Lockscreen({ mode, activationTime, onUnlockTest }: Locks
   }, [timeLeft, mode]);
 
   return (
-    <main className="lock-container window">
+    <main className={`lock-container window ${mode}`}>
       {mode === "preview" && onUnlockTest && (
         <button
           onClick={onUnlockTest}
@@ -57,11 +57,13 @@ export default function Lockscreen({ mode, activationTime, onUnlockTest }: Locks
             position: "absolute",
             top: 20,
             right: 20,
-            opacity: 0.1,
+            opacity: 0.55,
             background: "transparent",
             color: "#fff",
-            border: "1px solid #fff",
+            border: "none",
+            padding: "8px 12px",
             cursor: "pointer",
+            fontSize: "0.875rem",
           }}
         >
           Exit Test

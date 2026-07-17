@@ -396,9 +396,12 @@ body {
   max-width: 800px;
   padding: 40px;
   animation: fadeIn 2s ease-out;
+  user-select: none;
+}
+
+.lock-container.real {
   /* Cursor hidden for full lockscreen effect */
   cursor: none;
-  user-select: none;
 }
 
 .lock-container.window {

@@ -35,7 +35,7 @@ export default function Main({ config, onSave, onGoToAdvanced, onPreviewLockscre
   return (
     <>
       <div className="preview-btn-container">
-        <button className="btn-secondary" onClick={onPreviewLockscreen}>Preview Lockscreen</button>
+        <button className="btn-secondary" onClick={onPreviewLockscreen}>Vista previa del bloqueo</button>
       </div>
       <main className="app-card">
         <header className="app-header">
