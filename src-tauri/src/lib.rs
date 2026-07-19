@@ -8,8 +8,14 @@ use sleepguard_core::{
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration as StdDuration;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager, State, WindowEvent,
+};
 use tauri_plugin_notification::NotificationExt;
+
+mod monitor_autostart;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
@@ -56,6 +62,65 @@ fn get_launch_mode(state: State<'_, Mutex<AppState>>) -> Result<LaunchMode, Stri
 #[tauri::command]
 fn is_first_launch() -> bool {
     !config_exists(&config_path())
+}
+
+#[tauri::command]
+fn ensure_monitor_autostart(enabled: bool) -> Result<(), String> {
+    monitor_autostart::set_enabled(enabled)
+}
+
+fn show_main_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let open_item = MenuItem::with_id(app, "open", "Abrir", true, None::<&str>)?;
+    let quit_item = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+
+    let icon = app
+        .default_window_icon()
+        .ok_or("No hay icono de aplicación para la bandeja")?
+        .clone();
+
+    TrayIconBuilder::new()
+        .icon(icon)
+        .menu(&menu)
+        .tooltip("SleepGuard")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id.as_ref() {
+            "open" => show_main_window(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
+        .build(app)?;
+
+    Ok(())
+}
+
+fn setup_close_to_tray(app: &tauri::App) {
+    if let Some(window) = app.get_webview_window("main") {
+        window.clone().on_window_event(move |event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+        });
+    }
 }
 
 fn monitor_loop(app: AppHandle) {
@@ -195,10 +260,17 @@ pub fn run() {
             if is_guard {
                 harden_guard_window(app);
             } else {
+                setup_tray(app).expect("failed to setup system tray");
+                setup_close_to_tray(app);
+
                 let handle = app.handle().clone();
                 thread::spawn(move || {
                     monitor_loop(handle);
                 });
+
+                if let Ok(cfg) = core_load(&config_path()) {
+                    let _ = monitor_autostart::set_enabled(cfg.enabled);
+                }
             }
 
             Ok(())
@@ -209,7 +281,8 @@ pub fn run() {
             execute_shutdown,
             execute_shutdown_now,
             get_launch_mode,
-            is_first_launch
+            is_first_launch,
+            ensure_monitor_autostart
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

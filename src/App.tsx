@@ -88,6 +88,7 @@ function App() {
     try {
       await invoke("save_config", { config: newConfig });
       setConfig(newConfig);
+      await invoke("ensure_monitor_autostart", { enabled: newConfig.enabled });
     } catch (err) {
       console.error("Failed to save config:", err);
     }

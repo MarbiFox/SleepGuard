@@ -3217,6 +3217,7 @@ name = "sleepguard-app"
 version = "1.0.0"
 dependencies = [
  "chrono",
+ "dirs",
  "serde",
  "serde_json",
  "sleepguard-core",
