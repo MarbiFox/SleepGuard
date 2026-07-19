@@ -196,6 +196,17 @@ pub fn next_shutdown_event(cfg: &AppConfig, now: DateTime<Local>) -> Option<Date
         .single()
 }
 
+/// Today's shutdown instant, even if it has already passed.
+pub fn today_shutdown_target(cfg: &AppConfig, now: DateTime<Local>) -> Option<DateTime<Local>> {
+    if !cfg.enabled {
+        return None;
+    }
+
+    let today = now.date_naive();
+    let time = resolve_shutdown(cfg, day_key(today))?;
+    today.and_time(time).and_local_timezone(Local).single()
+}
+
 pub fn is_dry_run() -> bool {
     matches!(
         std::env::var("SLEEPGUARD_DRY_RUN").as_deref(),
@@ -398,6 +409,43 @@ mod tests {
             .single()
             .expect("valid local time");
         assert!(next_shutdown_event(&cfg, now).is_none());
+    }
+
+    #[test]
+    fn today_target_when_still_upcoming() {
+        let cfg = cfg_with("23:30", "07:00", HashMap::new());
+        let now = Local
+            .with_ymd_and_hms(2026, 7, 13, 20, 0, 0)
+            .single()
+            .expect("valid local time");
+
+        let target = today_shutdown_target(&cfg, now).unwrap();
+        assert_eq!(target.date_naive(), now.date_naive());
+        assert_eq!(target.time(), NaiveTime::from_hms_opt(23, 30, 0).unwrap());
+    }
+
+    #[test]
+    fn today_target_when_already_passed() {
+        let cfg = cfg_with("23:30", "07:00", HashMap::new());
+        let now = Local
+            .with_ymd_and_hms(2026, 7, 13, 23, 45, 0)
+            .single()
+            .expect("valid local time");
+
+        let target = today_shutdown_target(&cfg, now).unwrap();
+        assert_eq!(target.date_naive(), now.date_naive());
+        assert_eq!(target.time(), NaiveTime::from_hms_opt(23, 30, 0).unwrap());
+    }
+
+    #[test]
+    fn today_target_none_when_disabled() {
+        let mut cfg = cfg_with("23:30", "07:00", HashMap::new());
+        cfg.enabled = false;
+        let now = Local
+            .with_ymd_and_hms(2026, 7, 13, 20, 0, 0)
+            .single()
+            .expect("valid local time");
+        assert!(today_shutdown_target(&cfg, now).is_none());
     }
 
     #[test]

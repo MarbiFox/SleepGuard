@@ -2,8 +2,8 @@ use chrono::{DateTime, Duration, Local};
 use serde::Serialize;
 use sleepguard_core::{
     config_exists, config_path, day_key, execute_shutdown_delayed, execute_shutdown_now as core_shutdown_now,
-    format_hhmm, load_config as core_load, next_shutdown_event, resolve_activation, save_config as core_save,
-    AppConfig,
+    format_hhmm, load_config as core_load, resolve_activation, save_config as core_save,
+    today_shutdown_target, AppConfig,
 };
 use std::sync::Mutex;
 use std::thread;
@@ -65,27 +65,23 @@ fn monitor_loop(app: AppHandle) {
         };
 
         let now = Local::now();
-        let Some(event) = next_shutdown_event(&cfg, now) else {
+        let Some(target) = today_shutdown_target(&cfg, now) else {
             continue;
         };
 
-        // Config change → new event → fresh notify/fire guards
-        if notified_for.is_some_and(|n| n != event) {
-            notified_for = None;
-        }
-        if fired_for.is_some_and(|f| f != event) {
-            fired_for = None;
+        // Already emitted today's shutdown for this target.
+        if fired_for == Some(target) {
+            continue;
         }
 
-        let remaining = event - now;
-
+        let remaining = target - now;
         if remaining > Duration::zero()
             && remaining <= Duration::minutes(15)
-            && notified_for != Some(event)
+            && notified_for != Some(target)
         {
             let body = format!(
                 "SleepGuard: el equipo se apagará a las {}",
-                format_hhmm(event.time())
+                format_hhmm(target.time())
             );
             let _ = app
                 .notification()
@@ -93,13 +89,15 @@ fn monitor_loop(app: AppHandle) {
                 .title("SleepGuard")
                 .body(body)
                 .show();
-            notified_for = Some(event);
+            notified_for = Some(target);
         }
 
-        if remaining <= Duration::zero() && fired_for != Some(event) {
-            let _ = execute_shutdown_delayed();
-            fired_for = Some(event);
+        if now < target {
+            continue;
         }
+
+        let _ = execute_shutdown_delayed();
+        fired_for = Some(target);
     }
 }
 
