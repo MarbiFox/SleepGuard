@@ -4,11 +4,17 @@ import { invoke } from "@tauri-apps/api/core";
 interface LockscreenProps {
   mode: "preview" | "real";
   activationTime: string;
+  initialCountdown?: number;
   onUnlockTest?: () => void;
 }
 
-export default function Lockscreen({ mode, activationTime, onUnlockTest }: LockscreenProps) {
-  const [timeLeft, setTimeLeft] = useState(30);
+export default function Lockscreen({
+  mode,
+  activationTime,
+  initialCountdown = 30,
+  onUnlockTest,
+}: LockscreenProps) {
+  const [timeLeft, setTimeLeft] = useState(initialCountdown);
   const shutdownFired = useRef(false);
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import "./App.css";
 import Main from "./screens/Main";
 import Advanced from "./screens/Advanced";
@@ -30,10 +31,16 @@ interface LaunchModeResponse {
   activation?: string;
 }
 
+interface ShutdownLockscreenPayload {
+  activation_time: string;
+  countdown_secs: number;
+}
+
 function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [guardActivation, setGuardActivation] = useState<string | null>(null);
+  const [countdownSecs, setCountdownSecs] = useState(30);
 
   useEffect(() => {
     async function bootstrap() {
@@ -41,6 +48,7 @@ function App() {
         const launch = await invoke<LaunchModeResponse>("get_launch_mode");
         if (launch.mode === "guard" && launch.activation) {
           setGuardActivation(launch.activation);
+          setCountdownSecs(30);
           setCurrentScreen("lockscreen");
           // Still load config for consistency, but UI is locked to guard
           const cfg = await invoke<AppConfig>("load_config");
@@ -58,6 +66,22 @@ function App() {
     }
 
     bootstrap();
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    listen<ShutdownLockscreenPayload>("show-shutdown-lockscreen", (event) => {
+      setGuardActivation(event.payload.activation_time);
+      setCountdownSecs(event.payload.countdown_secs);
+      setCurrentScreen("lockscreen");
+    }).then((fn) => {
+      unlisten = fn;
+    });
+
+    return () => {
+      unlisten?.();
+    };
   }, []);
 
   const saveConfig = async (newConfig: AppConfig) => {
@@ -79,7 +103,13 @@ function App() {
   }
 
   if (guardActivation) {
-    return <Lockscreen mode="real" activationTime={guardActivation} />;
+    return (
+      <Lockscreen
+        mode="real"
+        activationTime={guardActivation}
+        initialCountdown={countdownSecs}
+      />
+    );
   }
 
   return (

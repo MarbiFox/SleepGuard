@@ -8,7 +8,7 @@ use sleepguard_core::{
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration as StdDuration;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_notification::NotificationExt;
 
 #[derive(Debug, Clone, Serialize)]
@@ -16,6 +16,12 @@ use tauri_plugin_notification::NotificationExt;
 pub enum LaunchMode {
     Normal,
     Guard { activation: String },
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ShutdownLockscreenPayload {
+    activation_time: String,
+    countdown_secs: u32,
 }
 
 struct AppState {
@@ -55,22 +61,28 @@ fn is_first_launch() -> bool {
 fn monitor_loop(app: AppHandle) {
     let mut notified_for: Option<DateTime<Local>> = None;
     let mut fired_for: Option<DateTime<Local>> = None;
+    let mut sleep_secs: u64 = 30;
 
     loop {
-        thread::sleep(StdDuration::from_secs(30));
+        thread::sleep(StdDuration::from_secs(sleep_secs));
 
         let cfg = match core_load(&config_path()) {
             Ok(c) => c,
-            Err(_) => continue,
+            Err(_) => {
+                sleep_secs = 30;
+                continue;
+            }
         };
 
         let now = Local::now();
         let Some(target) = today_shutdown_target(&cfg, now) else {
+            sleep_secs = 30;
             continue;
         };
 
-        // Already emitted today's shutdown for this target.
+        // Already shown lockscreen for today's shutdown target.
         if fired_for == Some(target) {
+            sleep_secs = 30;
             continue;
         }
 
@@ -92,12 +104,37 @@ fn monitor_loop(app: AppHandle) {
             notified_for = Some(target);
         }
 
-        if now < target {
+        // Show lockscreen at T−30s (or immediately if already past target).
+        if remaining <= Duration::seconds(30) {
+            let tomorrow = now.date_naive() + Duration::days(1);
+            let activation_time = resolve_activation(&cfg, day_key(tomorrow))
+                .map(format_hhmm)
+                .unwrap_or_else(|| "07:00".into());
+
+            let countdown_secs = if remaining <= Duration::zero() {
+                0u32
+            } else {
+                remaining.num_seconds().clamp(0, 30) as u32
+            };
+
+            harden_window(&app);
+            let _ = app.emit(
+                "show-shutdown-lockscreen",
+                ShutdownLockscreenPayload {
+                    activation_time,
+                    countdown_secs,
+                },
+            );
+            fired_for = Some(target);
+            sleep_secs = 30;
             continue;
         }
 
-        let _ = execute_shutdown_delayed();
-        fired_for = Some(target);
+        sleep_secs = if remaining <= Duration::minutes(1) {
+            1
+        } else {
+            30
+        };
     }
 }
 
@@ -130,7 +167,7 @@ fn resolve_guard_mode() -> LaunchMode {
     }
 }
 
-fn harden_guard_window(app: &tauri::App) {
+fn harden_window(app: &impl Manager<tauri::Wry>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_fullscreen(true);
         let _ = window.set_always_on_top(true);
@@ -138,7 +175,13 @@ fn harden_guard_window(app: &tauri::App) {
         let _ = window.set_closable(false);
         let _ = window.set_skip_taskbar(true);
         let _ = window.set_title("SleepGuard");
+        let _ = window.show();
+        let _ = window.set_focus();
     }
+}
+
+fn harden_guard_window(app: &tauri::App) {
+    harden_window(app);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
