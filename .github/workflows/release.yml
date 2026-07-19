@@ -56,19 +56,21 @@ jobs:
           tagName: sleepguard-v__VERSION__
           releaseName: 'SleepGuard v__VERSION__'
           releaseBody: |
-            ¡Hola! 👋 Esta es una nueva versión de **SleepGuard**, la app de escritorio que te ayuda a poner límites reales de horario a tu computador: define cuándo se apaga y cuándo puede volver a encenderse, y ella se encarga del resto — sin clics extra, sin depender de que te acuerdes.
+            ¡Hola! 👋 Esta es **SleepGuard v1.1.1**, un parche sobre 1.1.0 para que el agente de arranque funcione bien en los instaladores publicados.
 
             Descarga el instalador de tu sistema operativo más abajo en **Assets** 👇 (Windows: `.exe` / `.msi` · Linux: `.deb` / `.AppImage`). En Linux también está el binario `sleepguard-guard` del agente de arranque.
 
-            ### ✨ Novedades de esta versión
+            ### 🔧 Correcciones en v1.1.1
 
-            - 🛡️ **Agente de arranque**: al activar el servicio puedes instalar el guard con permisos de administrador (o desde Configuración avanzada). Detecta si el equipo se enciende antes de la hora de activación y aplica el bloqueo. Sin el agente instalado, la hora de activación queda bloqueada en la UI.
-            - 🚀 **Monitor persistente**: al cerrar la ventana la app sigue en la bandeja del sistema; al activar el servicio se registra al inicio de sesión (XDG en Linux / Task Scheduler en Windows) y puede arrancar en segundo plano sin molestar.
-            - 🔒 **Lockscreen antes del apagado**: unos 30 segundos antes de la hora configurada aparece la pantalla de bloqueo con cuenta regresiva y, al llegar a 0, se apaga de inmediato.
-            - 🛠️ **Apagado más fiable**: el motor ya no se pierde el momento exacto del apagado por cortes de tick o suspensión; compara contra la hora objetivo en lugar de depender solo del tiempo restante.
-            - 🧭 **Ventanas de acercamiento y bloqueo**: la lógica considera apagado y activación juntos (también horarios nocturnos como 23:30 → 07:00), para saber cuándo avisar, bloquear o dejar pasar.
-            - 🧹 **Lockscreen más claro**: la UI distingue mejor el bloqueo por arranque temprano del de apagado programado, y puede cerrar la pantalla cuando toca sin quedarse colgada.
-            - ⏸️ **Servicio pausado por defecto**: la configuración arranca en apagado/pausado, para que actives el servicio cuando estés listo y no por sorpresa.
+            - 🛡️ **Instalar agente de arranque en el release**: la app ya encuentra `install-guard.sh` / `sleepguard-guard` (y el script de Windows) dentro del paquete, en la ruta real de recursos de Tauri (`_up_/installer/...`). En 1.1.0 solo funcionaba en desarrollo.
+            - 📣 **Errores más claros**: si la instalación del agente falla, la UI muestra el mensaje concreto en lugar de un aviso genérico.
+
+            ### ✨ Lo que ya traía v1.1.0
+
+            - Monitor persistente en bandeja + autostart de sesión
+            - Lockscreen 30 s antes del apagado programado
+            - Apagado más fiable y ventanas de acercamiento/bloqueo (incluye horarios nocturnos)
+            - Servicio pausado por defecto
 
             ---
 

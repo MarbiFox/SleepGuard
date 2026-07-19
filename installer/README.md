@@ -1,4 +1,4 @@
-# SleepGuard — Instalación y autostart (v1.1)
+# SleepGuard — Instalación y autostart (v1.1.1)
 
 Scripts explícitos y auditables para RF-07, RNF-01 y RNF-05.
 
