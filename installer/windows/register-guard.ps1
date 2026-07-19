@@ -1,19 +1,29 @@
-# SleepGuard Windows installer — Task Scheduler autostart (RF-07, RNF-05).
-# Run elevated (Run as Administrator).
+# SleepGuard Windows installer — Task Scheduler (RF-07, RNF-05).
+# Run elevated (Run as Administrator) when registering the Guard task.
 #Requires -RunAsAdministrator
 
 param(
     [string]$AppPath = "",
-    [string]$ConfigPath = ""
+    [string]$ConfigPath = "",
+    [switch]$GuardOnly,
+    [switch]$MonitorOnly
 )
 
 $ErrorActionPreference = "Stop"
 
 if (-not $AppPath) {
-    $candidate = Join-Path $PSScriptRoot "..\..\src-tauri\target\release\sleepguard-app.exe"
-    if (Test-Path $candidate) {
-        $AppPath = (Resolve-Path $candidate).Path
-    } else {
+    $candidates = @(
+        (Join-Path $PSScriptRoot "..\..\src-tauri\target\release\sleepguard-app.exe"),
+        (Join-Path $PSScriptRoot "sleepguard-app.exe"),
+        (Get-Command sleepguard-app.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source)
+    )
+    foreach ($candidate in $candidates) {
+        if ($candidate -and (Test-Path $candidate)) {
+            $AppPath = (Resolve-Path $candidate).Path
+            break
+        }
+    }
+    if (-not $AppPath) {
         Write-Error "No se encontró sleepguard-app.exe. Pasa -AppPath o compila en release."
     }
 }
@@ -31,7 +41,9 @@ function Register-SleepGuardTask {
     param(
         [string]$Name,
         [string]$Arguments,
-        [string]$Description
+        [string]$Description,
+        [ValidateSet("Limited", "Highest")]
+        [string]$RunLevel = "Highest"
     )
 
     Unregister-ScheduledTask -TaskName $Name -Confirm:$false -ErrorAction SilentlyContinue
@@ -45,13 +57,12 @@ function Register-SleepGuardTask {
         -RestartCount 3 `
         -RestartInterval (New-TimeSpan -Minutes 1) `
         -ExecutionTimeLimit (New-TimeSpan -Days 0)
-    # Highest available priority for interactive tasks
     $settings.Priority = 4
 
     $principal = New-ScheduledTaskPrincipal `
         -UserId $env:USERNAME `
         -LogonType Interactive `
-        -RunLevel Highest
+        -RunLevel $RunLevel
 
     Register-ScheduledTask `
         -TaskName $Name `
@@ -62,22 +73,36 @@ function Register-SleepGuardTask {
         -Description $Description | Out-Null
 }
 
-# Task 1: monitor (GUI + background monitor loop)
-Register-SleepGuardTask `
-    -Name "SleepGuard-Monitor" `
-    -Arguments "" `
-    -Description "SleepGuard monitor at logon (Restart on failure)"
+$doMonitor = -not $GuardOnly
+$doGuard = -not $MonitorOnly
+if ($GuardOnly -and $MonitorOnly) {
+    Write-Error "No combines -GuardOnly y -MonitorOnly."
+}
 
-# Task 2: --guard lockscreen at logon (activation check)
-Register-SleepGuardTask `
-    -Name "SleepGuard-Guard" `
-    -Arguments "--guard" `
-    -Description "SleepGuard activation guard at logon"
+if ($doMonitor) {
+    Register-SleepGuardTask `
+        -Name "SleepGuard-Monitor" `
+        -Arguments "--background" `
+        -Description "SleepGuard monitor at logon (Restart on failure)" `
+        -RunLevel Limited
+}
+
+if ($doGuard) {
+    Register-SleepGuardTask `
+        -Name "SleepGuard-Guard" `
+        -Arguments "--guard" `
+        -Description "SleepGuard activation guard at logon" `
+        -RunLevel Highest
+}
 
 Write-Host ""
 Write-Host "Tareas registradas:"
-Write-Host "  SleepGuard-Monitor  -> $AppPath"
-Write-Host "  SleepGuard-Guard    -> $AppPath --guard"
+if ($doMonitor) {
+    Write-Host "  SleepGuard-Monitor  -> $AppPath --background"
+}
+if ($doGuard) {
+    Write-Host "  SleepGuard-Guard    -> $AppPath --guard"
+}
 Write-Host "  Config esperado:    $ConfigPath"
 Write-Host ""
 Write-Host "Limitacion v1.0 (RNF-02): el monitor NO es un Windows Service real;"

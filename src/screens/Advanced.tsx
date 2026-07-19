@@ -1,11 +1,19 @@
 import { useState } from "react";
 import { AppConfig, OverrideConfig } from "../App";
 import { formatTimeInput, handleTimeBlur } from "../utils/time";
+import {
+  canEditActivation,
+  isBootGuardInstalled,
+  markBootGuardDeclined,
+  markBootGuardInstalled,
+} from "../utils/bootGuard";
 
 interface AdvancedProps {
   config: AppConfig;
   onSave: (cfg: AppConfig) => void;
   onBack: () => void;
+  onInstallBootGuard: () => Promise<boolean>;
+  onBootGuardPrefsChanged: () => void;
 }
 
 const DAYS = [
@@ -18,12 +26,23 @@ const DAYS = [
   { id: "sun", name: "Domingo" },
 ];
 
-export default function Advanced({ config, onSave, onBack }: AdvancedProps) {
+export default function Advanced({
+  config,
+  onSave,
+  onBack,
+  onInstallBootGuard,
+  onBootGuardPrefsChanged,
+}: AdvancedProps) {
   const [schedule, setSchedule] = useState<Record<string, OverrideConfig>>(
     config.schedule.overrides
   );
+  const [bootGuardOn, setBootGuardOn] = useState(isBootGuardInstalled);
+  const [activationEditable, setActivationEditable] = useState(canEditActivation);
+  const [installing, setInstalling] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
 
   const handleChange = (day: string, field: "shutdown" | "activation", value: string) => {
+    if (field === "activation" && !activationEditable) return;
     setSchedule((prev) => ({
       ...prev,
       [day]: {
@@ -34,6 +53,7 @@ export default function Advanced({ config, onSave, onBack }: AdvancedProps) {
   };
 
   const handleBlur = (day: string, field: "shutdown" | "activation", value: string) => {
+    if (field === "activation" && !activationEditable) return;
     handleTimeBlur(value, (clamped) => {
       setSchedule((prev) => ({
         ...prev,
@@ -48,8 +68,37 @@ export default function Advanced({ config, onSave, onBack }: AdvancedProps) {
   const clearDay = (day: string) => {
     setSchedule((prev) => ({
       ...prev,
-      [day]: { shutdown: "", activation: "" },
+      [day]: {
+        shutdown: "",
+        activation: activationEditable ? "" : prev[day]?.activation || "",
+      },
     }));
+  };
+
+  const handleBootGuardToggle = async (checked: boolean) => {
+    if (checked) {
+      setInstalling(true);
+      setStatus("Solicitando permisos de administrador…");
+      const ok = await onInstallBootGuard();
+      setInstalling(false);
+      if (ok) {
+        markBootGuardInstalled();
+        setBootGuardOn(true);
+        setActivationEditable(true);
+        setStatus("Agente de arranque instalado.");
+        onBootGuardPrefsChanged();
+      } else {
+        setBootGuardOn(false);
+        setStatus("No se pudo instalar el agente.");
+      }
+      return;
+    }
+
+    markBootGuardDeclined();
+    setBootGuardOn(false);
+    setActivationEditable(false);
+    setStatus(null);
+    onBootGuardPrefsChanged();
   };
 
   const handleSave = () => {
@@ -76,6 +125,29 @@ export default function Advanced({ config, onSave, onBack }: AdvancedProps) {
       </header>
 
       <div className="content">
+        <div className="adv-boot-guard">
+          <div className="adv-boot-guard-text">
+            <span className="adv-boot-guard-title">Agente de arranque</span>
+            <span className="adv-boot-guard-desc">
+              Bloquea el PC si se enciende antes de la hora de activación. Requiere
+              permisos de administrador.
+            </span>
+            {status && <span className="adv-boot-guard-status">{status}</span>}
+          </div>
+          <label
+            className="switch-container switch-container-sm"
+            aria-label="Activar o desactivar agente de arranque"
+          >
+            <input
+              type="checkbox"
+              checked={bootGuardOn}
+              disabled={installing}
+              onChange={(e) => void handleBootGuardToggle(e.target.checked)}
+            />
+            <div className="switch-track"></div>
+          </label>
+        </div>
+
         <div className="day-list">
           {DAYS.map((day) => {
             const dayConfig = schedule[day.id] || { shutdown: "", activation: "" };
@@ -95,7 +167,9 @@ export default function Advanced({ config, onSave, onBack }: AdvancedProps) {
                       onBlur={(e) => handleBlur(day.id, "shutdown", e.target.value)}
                     />
                   </div>
-                  <div className="input-group-adv">
+                  <div
+                    className={`input-group-adv ${!activationEditable ? "field-locked" : ""}`}
+                  >
                     <label>Activación</label>
                     <input
                       type="text"
@@ -103,6 +177,7 @@ export default function Advanced({ config, onSave, onBack }: AdvancedProps) {
                       placeholder={config.schedule.activation_default}
                       value={dayConfig.activation}
                       maxLength={5}
+                      disabled={!activationEditable}
                       onChange={(e) => handleChange(day.id, "activation", e.target.value)}
                       onBlur={(e) => handleBlur(day.id, "activation", e.target.value)}
                     />
@@ -126,7 +201,9 @@ export default function Advanced({ config, onSave, onBack }: AdvancedProps) {
       </div>
 
       <footer className="footer-adv">
-        <button className="primary-btn" onClick={handleSave}>Guardar cambios</button>
+        <button className="primary-btn" onClick={handleSave}>
+          Guardar cambios
+        </button>
       </footer>
     </div>
   );

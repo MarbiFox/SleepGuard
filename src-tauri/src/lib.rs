@@ -15,6 +15,7 @@ use tauri::{
 };
 use tauri_plugin_notification::NotificationExt;
 
+mod boot_guard;
 mod monitor_autostart;
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,6 +68,11 @@ fn is_first_launch() -> bool {
 #[tauri::command]
 fn ensure_monitor_autostart(enabled: bool) -> Result<(), String> {
     monitor_autostart::set_enabled(enabled)
+}
+
+#[tauri::command]
+fn ensure_boot_guard(app: AppHandle) -> Result<(), String> {
+    boot_guard::ensure_boot_guard(&app)
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -202,6 +208,10 @@ fn parse_guard_arg() -> bool {
     std::env::args().any(|a| a == "--guard")
 }
 
+fn parse_background_arg() -> bool {
+    std::env::args().any(|a| a == "--background" || a == "--tray")
+}
+
 fn resolve_guard_mode() -> LaunchMode {
     let cfg = match core_load(&config_path()) {
         Ok(c) => c,
@@ -263,6 +273,7 @@ pub fn run() {
         LaunchMode::Normal
     };
     let is_guard = matches!(launch_mode, LaunchMode::Guard { .. });
+    let start_in_background = !is_guard && parse_background_arg();
 
     tauri::Builder::default()
         .manage(Mutex::new(AppState { launch_mode }))
@@ -278,8 +289,22 @@ pub fn run() {
             if is_guard {
                 harden_guard_window(app);
             } else {
+                // Login autostart with service paused → exit quietly (and clear leftover entries).
+                if start_in_background {
+                    if let Ok(cfg) = core_load(&config_path()) {
+                        let _ = monitor_autostart::set_enabled(cfg.enabled);
+                        if !cfg.enabled {
+                            std::process::exit(0);
+                        }
+                    }
+                }
+
                 setup_tray(app).expect("failed to setup system tray");
                 setup_close_to_tray(app);
+
+                if !start_in_background {
+                    show_main_window(&app.handle().clone());
+                }
 
                 let handle = app.handle().clone();
                 thread::spawn(move || {
@@ -300,7 +325,8 @@ pub fn run() {
             execute_shutdown_now,
             get_launch_mode,
             is_first_launch,
-            ensure_monitor_autostart
+            ensure_monitor_autostart,
+            ensure_boot_guard
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

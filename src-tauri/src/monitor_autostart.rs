@@ -1,27 +1,25 @@
 use sleepguard_core::config_path;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const UNIT_NAME: &str = "sleepguard-monitor.service";
+const DESKTOP_NAME: &str = "sleepguard-monitor.desktop";
 
 #[cfg(target_os = "windows")]
 const WINDOWS_TASK: &str = "SleepGuard-Monitor";
 
-const MONITOR_UNIT_TEMPLATE: &str = r#"[Unit]
-Description=SleepGuard monitor (user session)
-After=graphical-session.target
-PartOf=graphical-session.target
-
-[Service]
-Type=simple
-ExecStart=@APP_BIN@
-Restart=always
-RestartSec=5
-Environment=SLEEPGUARD_CONFIG=@CONFIG_PATH@
-
-[Install]
-WantedBy=default.target
+const DESKTOP_TEMPLATE: &str = r#"[Desktop Entry]
+Type=Application
+Version=1.0
+Name=SleepGuard
+Comment=SleepGuard session monitor
+Exec=@APP_BIN@ --background
+Icon=sleepguard-app
+Terminal=false
+Categories=Utility;
+X-GNOME-Autostart-enabled=true
+StartupNotify=false
 "#;
 
 pub fn set_enabled(enabled: bool) -> Result<(), String> {
@@ -33,14 +31,47 @@ pub fn set_enabled(enabled: bool) -> Result<(), String> {
 }
 
 fn enable() -> Result<(), String> {
+    let Some(app_bin) = resolve_autostart_binary() else {
+        // `tauri dev` without a production binary — skip quietly.
+        return Ok(());
+    };
+
     #[cfg(target_os = "linux")]
-    return enable_linux();
+    return enable_linux(&app_bin);
 
     #[cfg(target_os = "windows")]
-    return enable_windows();
+    return enable_windows(&app_bin);
 
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    Err("Autostart del monitor no soportado en este SO".into())
+    {
+        let _ = app_bin;
+        Err("Autostart del monitor no soportado en este SO".into())
+    }
+}
+
+/// Prefer a production binary for login autostart (never `target/debug`).
+fn resolve_autostart_binary() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let exe = exe.canonicalize().unwrap_or(exe);
+
+    if is_production_path(&exe) {
+        return Some(exe);
+    }
+
+    // From `tauri dev`, register the release binary if it was built with `tauri build`.
+    let release = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/release/sleepguard-app");
+    if is_production_path(&release) {
+        return Some(release.canonicalize().unwrap_or(release));
+    }
+    None
+}
+
+fn is_production_path(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    let s = path.to_string_lossy();
+    !s.contains("/target/debug/") && !s.contains("\\target\\debug\\")
 }
 
 fn disable() -> Result<(), String> {
@@ -61,50 +92,64 @@ fn user_unit_path() -> Result<PathBuf, String> {
 }
 
 #[cfg(target_os = "linux")]
-fn enable_linux() -> Result<(), String> {
-    let app_bin = std::env::current_exe().map_err(|e| e.to_string())?;
-    let config = config_path();
-    let unit_body = MONITOR_UNIT_TEMPLATE
-        .replace("@APP_BIN@", &shell_escape(&app_bin.to_string_lossy()))
-        .replace("@CONFIG_PATH@", &shell_escape(&config.to_string_lossy()));
+fn autostart_desktop_path() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or("No se pudo resolver el directorio home")?;
+    Ok(home.join(".config/autostart").join(DESKTOP_NAME))
+}
 
-    let unit_path = user_unit_path()?;
-    if let Some(parent) = unit_path.parent() {
+#[cfg(target_os = "linux")]
+fn enable_linux(app_bin: &Path) -> Result<(), String> {
+    let _ = config_path(); // ensure config dir exists for session use
+    let app_str = app_bin.to_string_lossy();
+
+    // One launcher only: XDG autostart. Remove leftover systemd unit (double-start).
+    let _ = Command::new("systemctl")
+        .args(["--user", "disable", "--now", "--quiet", UNIT_NAME])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    if let Ok(unit_path) = user_unit_path() {
+        let _ = fs::remove_file(unit_path);
+    }
+    let _ = Command::new("systemctl")
+        .args(["--user", "daemon-reload", "--quiet"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    let desktop_path = autostart_desktop_path()?;
+    if let Some(parent) = desktop_path.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    fs::write(&unit_path, unit_body).map_err(|e| e.to_string())?;
-
-    run_systemctl(&["--user", "daemon-reload"])?;
-    run_systemctl(&["--user", "enable", UNIT_NAME])?;
+    let desktop_body = DESKTOP_TEMPLATE.replace("@APP_BIN@", &desktop_exec_escape(&app_str));
+    fs::write(&desktop_path, desktop_body).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
 fn disable_linux() -> Result<(), String> {
-    let _ = run_systemctl(&["--user", "disable", "--now", UNIT_NAME]);
+    let _ = Command::new("systemctl")
+        .args(["--user", "disable", "--now", "--quiet", UNIT_NAME])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
     if let Ok(unit_path) = user_unit_path() {
         let _ = fs::remove_file(unit_path);
     }
-    let _ = run_systemctl(&["--user", "daemon-reload"]);
+    if let Ok(desktop_path) = autostart_desktop_path() {
+        let _ = fs::remove_file(desktop_path);
+    }
+    let _ = Command::new("systemctl")
+        .args(["--user", "daemon-reload", "--quiet"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
     Ok(())
 }
 
 #[cfg(target_os = "linux")]
-fn run_systemctl(args: &[&str]) -> Result<(), String> {
-    let status = Command::new("systemctl")
-        .args(args)
-        .status()
-        .map_err(|e| format!("No se pudo ejecutar systemctl: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("systemctl {} falló con código {}", args.join(" "), status))
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn shell_escape(value: &str) -> String {
-    if value.contains(' ') || value.contains('"') {
+fn desktop_exec_escape(value: &str) -> String {
+    if value.chars().any(|c| c.is_whitespace() || c == '"') {
         format!("\"{}\"", value.replace('"', "\\\""))
     } else {
         value.to_string()
@@ -112,15 +157,14 @@ fn shell_escape(value: &str) -> String {
 }
 
 #[cfg(target_os = "windows")]
-fn enable_windows() -> Result<(), String> {
-    let app_bin = std::env::current_exe().map_err(|e| e.to_string())?;
+fn enable_windows(app_bin: &Path) -> Result<(), String> {
     let app_path = app_bin.to_string_lossy().replace('\'', "''");
 
     let script = format!(
         r#"
 $ErrorActionPreference = 'Stop'
 Unregister-ScheduledTask -TaskName '{task}' -Confirm:$false -ErrorAction SilentlyContinue
-$action = New-ScheduledTaskAction -Execute '{app}'
+$action = New-ScheduledTaskAction -Execute '{app}' -Argument '--background'
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet `
     -AllowStartIfOnBatteries `

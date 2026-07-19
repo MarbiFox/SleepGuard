@@ -44,6 +44,7 @@ function App() {
     null
   );
   const screenBeforeLockscreen = useRef<Screen>("main");
+  const [bootGuardEpoch, setBootGuardEpoch] = useState(0);
 
   useEffect(() => {
     async function bootstrap() {
@@ -115,6 +116,16 @@ function App() {
     setCurrentScreen("main");
   };
 
+  const installBootGuard = async (): Promise<boolean> => {
+    try {
+      await invoke("ensure_boot_guard");
+      return true;
+    } catch (err) {
+      console.error("Failed to install boot guard:", err);
+      return false;
+    }
+  };
+
   if (!config || !currentScreen) {
     return <div style={{ color: "white" }}>Cargando configuración...</div>;
   }
@@ -157,6 +168,8 @@ function App() {
             screenBeforeLockscreen.current = "main";
             setCurrentScreen("lockscreen");
           }}
+          onInstallBootGuard={installBootGuard}
+          bootGuardEpoch={bootGuardEpoch}
         />
       )}
       {currentScreen === "advanced" && (
@@ -164,6 +177,8 @@ function App() {
           config={config}
           onSave={saveConfig}
           onBack={() => setCurrentScreen("main")}
+          onInstallBootGuard={installBootGuard}
+          onBootGuardPrefsChanged={() => setBootGuardEpoch((n) => n + 1)}
         />
       )}
       {currentScreen === "lockscreen" && (

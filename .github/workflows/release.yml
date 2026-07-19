@@ -3,20 +3,20 @@ name: 'Release Tauri App'
 on:
   push:
     tags:
-      - 'v*' # Se activará al hacer push de un tag que empiece con v (ej. v1.0.0)
-  workflow_dispatch: # Permite ejecutarlo manualmente desde GitHub
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-and-release:
     permissions:
-      contents: write # Necesario para poder crear el "Release" y subir los archivos
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: 'ubuntu-22.04' # Linux (.deb y .AppImage)
+          - platform: 'ubuntu-22.04'
             args: ''
-          - platform: 'windows-latest' # Windows (.exe y .msi)
+          - platform: 'windows-latest'
             args: ''
 
     runs-on: ${{ matrix.platform }}
@@ -37,14 +37,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 
+      - name: Build sleepguard-guard (Linux companion)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          cargo build --release -p sleepguard-guard --manifest-path src-tauri/Cargo.toml
+          cp src-tauri/target/release/sleepguard-guard installer/linux/sleepguard-guard
+          chmod +x installer/linux/sleepguard-guard
+          ls -la installer/linux/
+
       - name: install frontend dependencies
         run: npm install
 
       - uses: tauri-apps/tauri-action@v0
+        id: tauri_build
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: sleepguard-v__VERSION__ # tauri-action reemplaza __VERSION__ por la versión de la app
+          tagName: sleepguard-v__VERSION__
           releaseName: 'SleepGuard v__VERSION__'
           releaseBody: |
             ¡Hola! 👋 Esta es una nueva versión de **SleepGuard**, la app de escritorio que te ayuda a poner límites reales de horario a tu computador: define cuándo se apaga y cuándo puede volver a encenderse, y ella se encarga del resto — sin clics extra, sin depender de que te acuerdes.
@@ -54,8 +63,8 @@ jobs:
             ### ✨ Novedades de esta versión
 
             - 🔔 **Aviso previo al apagado**: notificación nativa del sistema 15 minutos antes de la hora configurada, con la hora exacta de apagado.
-            - 🔒 **Bloqueo por arranque temprano**: si el equipo se enciende antes de la hora de activación del día, se muestra un aviso a pantalla completa y el equipo vuelve a apagarse automáticamente.
-            - 🚀 **Inicio automático**: el servicio de monitoreo y el agente de arranque se registran solos al instalar (systemd en Linux, Task Scheduler en Windows), sin configuración manual.
+            - 🔒 **Bloqueo por arranque temprano**: si el equipo se enciende antes de la hora de activación, el agente de arranque lo detecta (en Linux, `sleepguard-guard` vía systemd; en Windows, la app con `--guard`). Instálalo una vez desde la app con **Instalar agente de arranque** (pide permisos de administrador).
+            - 🚀 **Monitor persistente**: al activar el servicio, el monitor se registra al inicio de sesión (systemd user / Task Scheduler) y la app puede seguir en bandeja al cerrar la ventana.
             - 🧭 **Onboarding inicial**: al primer inicio, la app detecta tu sistema operativo y te pide confirmarlo antes de pasar a la configuración de horarios.
             - 🛡️ **Mejoras en el motor de apagado**: el cálculo del próximo apagado ahora es más robusto, evitando que se pierdan apagados por cortes de tick o suspensión del equipo.
             - ✅ **Validación de horarios**: los campos de hora ahora limitan correctamente los valores fuera de rango (horas > 23, minutos > 59) tanto en la pantalla principal como en la avanzada.
@@ -69,3 +78,17 @@ jobs:
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Attach sleepguard-guard to release (Linux)
+        if: matrix.platform == 'ubuntu-22.04'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.tauri_build.outputs.appVersion }}"
+          if [ -z "$VERSION" ]; then
+            echo "No appVersion from tauri-action; skip upload"
+            exit 0
+          fi
+          gh release upload "sleepguard-v${VERSION}" \
+            src-tauri/target/release/sleepguard-guard \
+            --clobber

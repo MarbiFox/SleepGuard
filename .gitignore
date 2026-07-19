@@ -21,6 +21,9 @@ src-tauri/gen/schemas/
 .env.*
 !.env.example
 
+# Companion binary copied into installer/ for packaging (built in CI / locally)
+installer/linux/sleepguard-guard
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
