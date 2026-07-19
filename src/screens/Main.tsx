@@ -13,7 +13,7 @@ interface MainProps {
   onSave: (cfg: AppConfig) => void;
   onGoToAdvanced: () => void;
   onPreviewLockscreen: () => void;
-  onInstallBootGuard: () => Promise<boolean>;
+  onInstallBootGuard: () => Promise<string | null>;
   /** Bumped when Advanced changes boot-guard prefs so Main re-reads localStorage. */
   bootGuardEpoch: number;
 }
@@ -65,16 +65,16 @@ export default function Main({
   const handleAllowBootGuard = async () => {
     setInstallingBootGuard(true);
     setBootGuardMessage("Solicitando permisos de administrador…");
-    const ok = await onInstallBootGuard();
+    const error = await onInstallBootGuard();
     setInstallingBootGuard(false);
-    if (ok) {
+    if (!error) {
       markBootGuardInstalled();
       setActivationEditable(true);
       setBootGuardMessage(null);
       setShowBootGuardPrompt(false);
     } else {
       setBootGuardMessage(
-        "No se pudo instalar el agente. Puedes activarlo más tarde en Configuración avanzada."
+        `${error} Puedes activarlo más tarde en Configuración avanzada.`
       );
     }
   };

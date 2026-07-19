@@ -102,27 +102,41 @@ fn project_root() -> PathBuf {
         .unwrap_or_else(manifest_dir)
 }
 
+/// Tauri 2 packs `bundle.resources` paths like `../installer/linux/*` under
+/// `$RESOURCE/_up_/installer/linux/`. Resolve with the same relative path used
+/// in `tauri.conf.json`, plus a direct `_up_/...` join as fallback.
+fn push_resource_candidates(app: &AppHandle, relative: &str, candidates: &mut Vec<PathBuf>) {
+    if let Ok(p) = app
+        .path()
+        .resolve(relative, tauri::path::BaseDirectory::Resource)
+    {
+        candidates.push(p);
+    }
+    if let Ok(dir) = app.path().resource_dir() {
+        let under_up = relative.strip_prefix("../").unwrap_or(relative);
+        candidates.push(dir.join("_up_").join(under_up));
+        candidates.push(dir.join(relative));
+        if let Some(name) = Path::new(relative).file_name() {
+            candidates.push(dir.join(name));
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn find_linux_install_script(app: &AppHandle) -> Result<PathBuf, String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    if let Ok(p) = app
-        .path()
-        .resolve("install-guard.sh", tauri::path::BaseDirectory::Resource)
-    {
-        candidates.push(p);
-    }
-    if let Ok(p) = app
-        .path()
-        .resolve("linux/install-guard.sh", tauri::path::BaseDirectory::Resource)
-    {
-        candidates.push(p);
-    }
+    // Release / bundled (.deb, AppImage): primary layout from tauri.conf.json
+    push_resource_candidates(app, "../installer/linux/install-guard.sh", &mut candidates);
+    push_resource_candidates(app, "installer/linux/install-guard.sh", &mut candidates);
+    push_resource_candidates(app, "linux/install-guard.sh", &mut candidates);
+    push_resource_candidates(app, "install-guard.sh", &mut candidates);
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("install-guard.sh"));
+            candidates.push(dir.join("_up_/installer/linux/install-guard.sh"));
             candidates.push(dir.join("installer/linux/install-guard.sh"));
+            candidates.push(dir.join("install-guard.sh"));
         }
     }
 
@@ -138,23 +152,16 @@ fn find_linux_install_script(app: &AppHandle) -> Result<PathBuf, String> {
 fn find_windows_register_script(app: &AppHandle) -> Result<PathBuf, String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
-    if let Ok(p) = app
-        .path()
-        .resolve("register-guard.ps1", tauri::path::BaseDirectory::Resource)
-    {
-        candidates.push(p);
-    }
-    if let Ok(p) = app
-        .path()
-        .resolve("windows/register-guard.ps1", tauri::path::BaseDirectory::Resource)
-    {
-        candidates.push(p);
-    }
+    push_resource_candidates(app, "../installer/windows/register-guard.ps1", &mut candidates);
+    push_resource_candidates(app, "installer/windows/register-guard.ps1", &mut candidates);
+    push_resource_candidates(app, "windows/register-guard.ps1", &mut candidates);
+    push_resource_candidates(app, "register-guard.ps1", &mut candidates);
 
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("register-guard.ps1"));
+            candidates.push(dir.join("_up_/installer/windows/register-guard.ps1"));
             candidates.push(dir.join("installer/windows/register-guard.ps1"));
+            candidates.push(dir.join("register-guard.ps1"));
         }
     }
 
@@ -170,17 +177,18 @@ fn find_windows_register_script(app: &AppHandle) -> Result<PathBuf, String> {
 fn find_guard_binary(app: &AppHandle) -> Result<PathBuf, String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
 
+    // Bundled companion binary (same resource layout as install-guard.sh).
+    push_resource_candidates(app, "../installer/linux/sleepguard-guard", &mut candidates);
+    push_resource_candidates(app, "installer/linux/sleepguard-guard", &mut candidates);
+    push_resource_candidates(app, "linux/sleepguard-guard", &mut candidates);
+    push_resource_candidates(app, "sleepguard-guard", &mut candidates);
+
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("_up_/installer/linux/sleepguard-guard"));
+            candidates.push(dir.join("installer/linux/sleepguard-guard"));
             candidates.push(dir.join("sleepguard-guard"));
         }
-    }
-
-    if let Ok(p) = app
-        .path()
-        .resolve("sleepguard-guard", tauri::path::BaseDirectory::Resource)
-    {
-        candidates.push(p);
     }
 
     // Dev / local builds (prefer same profile as the running app).

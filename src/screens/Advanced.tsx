@@ -12,7 +12,7 @@ interface AdvancedProps {
   config: AppConfig;
   onSave: (cfg: AppConfig) => void;
   onBack: () => void;
-  onInstallBootGuard: () => Promise<boolean>;
+  onInstallBootGuard: () => Promise<string | null>;
   onBootGuardPrefsChanged: () => void;
 }
 
@@ -79,9 +79,9 @@ export default function Advanced({
     if (checked) {
       setInstalling(true);
       setStatus("Solicitando permisos de administrador…");
-      const ok = await onInstallBootGuard();
+      const error = await onInstallBootGuard();
       setInstalling(false);
-      if (ok) {
+      if (!error) {
         markBootGuardInstalled();
         setBootGuardOn(true);
         setActivationEditable(true);
@@ -89,7 +89,7 @@ export default function Advanced({
         onBootGuardPrefsChanged();
       } else {
         setBootGuardOn(false);
-        setStatus("No se pudo instalar el agente.");
+        setStatus(error);
       }
       return;
     }

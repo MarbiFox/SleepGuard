@@ -116,13 +116,19 @@ function App() {
     setCurrentScreen("main");
   };
 
-  const installBootGuard = async (): Promise<boolean> => {
+  const installBootGuard = async (): Promise<string | null> => {
     try {
       await invoke("ensure_boot_guard");
-      return true;
+      return null;
     } catch (err) {
+      const message =
+        typeof err === "string"
+          ? err
+          : err instanceof Error
+            ? err.message
+            : String(err);
       console.error("Failed to install boot guard:", err);
-      return false;
+      return message || "No se pudo instalar el agente.";
     }
   };
 
