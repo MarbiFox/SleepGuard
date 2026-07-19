@@ -2,8 +2,8 @@ use chrono::{DateTime, Duration, Local};
 use serde::Serialize;
 use sleepguard_core::{
     config_exists, config_path, day_key, execute_shutdown_delayed, execute_shutdown_now as core_shutdown_now,
-    format_hhmm, load_config as core_load, resolve_activation, save_config as core_save,
-    today_shutdown_target, AppConfig,
+    format_hhmm, load_config as core_load, pending_shutdown_lockscreen, resolve_activation,
+    save_config as core_save, today_shutdown_target, AppConfig,
 };
 use std::sync::Mutex;
 use std::thread;
@@ -80,12 +80,6 @@ fn monitor_loop(app: AppHandle) {
             continue;
         };
 
-        // Already shown lockscreen for today's shutdown target.
-        if fired_for == Some(target) {
-            sleep_secs = 30;
-            continue;
-        }
-
         let remaining = target - now;
         if remaining > Duration::zero()
             && remaining <= Duration::minutes(15)
@@ -104,33 +98,27 @@ fn monitor_loop(app: AppHandle) {
             notified_for = Some(target);
         }
 
-        // Show lockscreen at T−30s (or immediately if already past target).
-        if remaining <= Duration::seconds(30) {
-            let tomorrow = now.date_naive() + Duration::days(1);
-            let activation_time = resolve_activation(&cfg, day_key(tomorrow))
-                .map(format_hhmm)
-                .unwrap_or_else(|| "07:00".into());
-
-            let countdown_secs = if remaining <= Duration::zero() {
-                0u32
-            } else {
-                remaining.num_seconds().clamp(0, 30) as u32
-            };
+        if let Some(trigger) = pending_shutdown_lockscreen(&cfg, now) {
+            if fired_for == Some(trigger.shutdown) {
+                sleep_secs = 30;
+                continue;
+            }
 
             harden_window(&app);
             let _ = app.emit(
                 "show-shutdown-lockscreen",
                 ShutdownLockscreenPayload {
-                    activation_time,
-                    countdown_secs,
+                    activation_time: format_hhmm(trigger.next_activation.time()),
+                    countdown_secs: 30,
                 },
             );
-            fired_for = Some(target);
+            fired_for = Some(trigger.shutdown);
             sleep_secs = 30;
             continue;
         }
 
-        sleep_secs = if remaining <= Duration::minutes(1) {
+        sleep_secs = if remaining > Duration::zero() && remaining <= Duration::minutes(1)
+        {
             1
         } else {
             30

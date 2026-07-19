@@ -207,6 +207,72 @@ pub fn today_shutdown_target(cfg: &AppConfig, now: DateTime<Local>) -> Option<Da
     today.and_time(time).and_local_timezone(Local).single()
 }
 
+/// Activation that ends the blocked window after `shutdown`.
+///
+/// Same calendar day if that day's activation is still after shutdown (e.g. 10:10 → 10:15);
+/// otherwise the next day's activation (e.g. 23:30 → 07:00 next morning).
+pub fn activation_after_shutdown(
+    cfg: &AppConfig,
+    shutdown: DateTime<Local>,
+) -> Option<DateTime<Local>> {
+    let day = shutdown.date_naive();
+    let act_time = resolve_activation(cfg, day_key(day))?;
+    let same_day = day.and_time(act_time).and_local_timezone(Local).single()?;
+    if same_day > shutdown {
+        return Some(same_day);
+    }
+
+    let next_day = day + Duration::days(1);
+    let next_time = resolve_activation(cfg, day_key(next_day))?;
+    next_day
+        .and_time(next_time)
+        .and_local_timezone(Local)
+        .single()
+}
+
+/// When the lockscreen should appear for a scheduled shutdown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockscreenTrigger {
+    pub shutdown: DateTime<Local>,
+    pub next_activation: DateTime<Local>,
+}
+
+/// Returns a trigger if `now` is in the approach window `[shutdown − 30s, shutdown]`
+/// or the blocked window `(shutdown, next_activation)`.
+///
+/// Checks today's and yesterday's shutdown so overnight schedules (23:30 → 07:00) work.
+pub fn pending_shutdown_lockscreen(
+    cfg: &AppConfig,
+    now: DateTime<Local>,
+) -> Option<LockscreenTrigger> {
+    if !cfg.enabled {
+        return None;
+    }
+
+    for day_offset in [0i64, -1] {
+        let day = now.date_naive() + Duration::days(day_offset);
+        let Some(s_time) = resolve_shutdown(cfg, day_key(day)) else {
+            continue;
+        };
+        let Some(shutdown) = day.and_time(s_time).and_local_timezone(Local).single() else {
+            continue;
+        };
+        let Some(next_activation) = activation_after_shutdown(cfg, shutdown) else {
+            continue;
+        };
+
+        let approach_start = shutdown - Duration::seconds(30);
+        if now >= approach_start && now < next_activation {
+            return Some(LockscreenTrigger {
+                shutdown,
+                next_activation,
+            });
+        }
+    }
+
+    None
+}
+
 pub fn is_dry_run() -> bool {
     matches!(
         std::env::var("SLEEPGUARD_DRY_RUN").as_deref(),
@@ -446,6 +512,82 @@ mod tests {
             .single()
             .expect("valid local time");
         assert!(today_shutdown_target(&cfg, now).is_none());
+    }
+
+    #[test]
+    fn lockscreen_approach_same_day_schedule() {
+        let cfg = cfg_with("10:10", "10:15", HashMap::new());
+        let now = Local
+            .with_ymd_and_hms(2026, 7, 13, 10, 9, 50)
+            .single()
+            .expect("valid local time");
+        let trigger = pending_shutdown_lockscreen(&cfg, now).unwrap();
+        assert_eq!(
+            trigger.shutdown.time(),
+            NaiveTime::from_hms_opt(10, 10, 0).unwrap()
+        );
+        assert_eq!(
+            trigger.next_activation.time(),
+            NaiveTime::from_hms_opt(10, 15, 0).unwrap()
+        );
+        assert_eq!(trigger.next_activation.date_naive(), now.date_naive());
+    }
+
+    #[test]
+    fn lockscreen_blocked_same_day_schedule() {
+        let cfg = cfg_with("10:10", "10:15", HashMap::new());
+        let now = Local
+            .with_ymd_and_hms(2026, 7, 13, 10, 12, 30)
+            .single()
+            .expect("valid local time");
+        assert!(pending_shutdown_lockscreen(&cfg, now).is_some());
+    }
+
+    #[test]
+    fn lockscreen_none_after_activation_same_day() {
+        let cfg = cfg_with("10:10", "10:15", HashMap::new());
+        let now = Local
+            .with_ymd_and_hms(2026, 7, 13, 10, 16, 40)
+            .single()
+            .expect("valid local time");
+        assert!(pending_shutdown_lockscreen(&cfg, now).is_none());
+    }
+
+    #[test]
+    fn lockscreen_overnight_approach_and_blocked() {
+        let cfg = cfg_with("23:30", "07:00", HashMap::new());
+
+        let approach = Local
+            .with_ymd_and_hms(2026, 7, 13, 23, 29, 40)
+            .single()
+            .expect("valid local time");
+        assert!(pending_shutdown_lockscreen(&cfg, approach).is_some());
+
+        let blocked = Local
+            .with_ymd_and_hms(2026, 7, 13, 23, 45, 0)
+            .single()
+            .expect("valid local time");
+        let trigger = pending_shutdown_lockscreen(&cfg, blocked).unwrap();
+        assert_eq!(
+            trigger.next_activation.date_naive(),
+            blocked.date_naive() + Duration::days(1)
+        );
+        assert_eq!(
+            trigger.next_activation.time(),
+            NaiveTime::from_hms_opt(7, 0, 0).unwrap()
+        );
+
+        let night = Local
+            .with_ymd_and_hms(2026, 7, 14, 2, 0, 0)
+            .single()
+            .expect("valid local time");
+        assert!(pending_shutdown_lockscreen(&cfg, night).is_some());
+
+        let morning = Local
+            .with_ymd_and_hms(2026, 7, 14, 8, 0, 0)
+            .single()
+            .expect("valid local time");
+        assert!(pending_shutdown_lockscreen(&cfg, morning).is_none());
     }
 
     #[test]
