@@ -1,4 +1,4 @@
-# SleepGuard — Instalación y autostart (v1.0)
+# SleepGuard — Instalación y autostart (v1.1)
 
 Scripts explícitos y auditables para RF-07, RNF-01 y RNF-05.
 
@@ -88,7 +88,7 @@ Al **activar el servicio**, SleepGuard muestra un diálogo para permitir instala
 
 Si elige «Ahora no», el horario de apagado sigue activo y la hora de activación queda bloqueada hasta que active el **Agente de arranque** en Configuración avanzada.
 
-## Limitaciones conocidas (v1.0)
+## Limitaciones conocidas (v1.1)
 
 ### RNF-02 — Servicio Windows
 

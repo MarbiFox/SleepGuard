@@ -58,17 +58,17 @@ jobs:
           releaseBody: |
             ¡Hola! 👋 Esta es una nueva versión de **SleepGuard**, la app de escritorio que te ayuda a poner límites reales de horario a tu computador: define cuándo se apaga y cuándo puede volver a encenderse, y ella se encarga del resto — sin clics extra, sin depender de que te acuerdes.
 
-            Descarga el instalador de tu sistema operativo más abajo en **Assets** 👇 (Windows: `.exe` / `.msi` · Linux: `.deb` / `.AppImage`).
+            Descarga el instalador de tu sistema operativo más abajo en **Assets** 👇 (Windows: `.exe` / `.msi` · Linux: `.deb` / `.AppImage`). En Linux también está el binario `sleepguard-guard` del agente de arranque.
 
             ### ✨ Novedades de esta versión
 
-            - 🔔 **Aviso previo al apagado**: notificación nativa del sistema 15 minutos antes de la hora configurada, con la hora exacta de apagado.
-            - 🔒 **Bloqueo por arranque temprano**: si el equipo se enciende antes de la hora de activación, el agente de arranque lo detecta (en Linux, `sleepguard-guard` vía systemd; en Windows, la app con `--guard`). Instálalo una vez desde la app con **Instalar agente de arranque** (pide permisos de administrador).
-            - 🚀 **Monitor persistente**: al activar el servicio, el monitor se registra al inicio de sesión (systemd user / Task Scheduler) y la app puede seguir en bandeja al cerrar la ventana.
-            - 🧭 **Onboarding inicial**: al primer inicio, la app detecta tu sistema operativo y te pide confirmarlo antes de pasar a la configuración de horarios.
-            - 🛡️ **Mejoras en el motor de apagado**: el cálculo del próximo apagado ahora es más robusto, evitando que se pierdan apagados por cortes de tick o suspensión del equipo.
-            - ✅ **Validación de horarios**: los campos de hora ahora limitan correctamente los valores fuera de rango (horas > 23, minutos > 59) tanto en la pantalla principal como en la avanzada.
-            - 🔐 **Configuración más segura**: el archivo de configuración local se guarda con permisos restringidos.
+            - 🛡️ **Agente de arranque**: al activar el servicio puedes instalar el guard con permisos de administrador (o desde Configuración avanzada). Detecta si el equipo se enciende antes de la hora de activación y aplica el bloqueo. Sin el agente instalado, la hora de activación queda bloqueada en la UI.
+            - 🚀 **Monitor persistente**: al cerrar la ventana la app sigue en la bandeja del sistema; al activar el servicio se registra al inicio de sesión (XDG en Linux / Task Scheduler en Windows) y puede arrancar en segundo plano sin molestar.
+            - 🔒 **Lockscreen antes del apagado**: unos 30 segundos antes de la hora configurada aparece la pantalla de bloqueo con cuenta regresiva y, al llegar a 0, se apaga de inmediato.
+            - 🛠️ **Apagado más fiable**: el motor ya no se pierde el momento exacto del apagado por cortes de tick o suspensión; compara contra la hora objetivo en lugar de depender solo del tiempo restante.
+            - 🧭 **Ventanas de acercamiento y bloqueo**: la lógica considera apagado y activación juntos (también horarios nocturnos como 23:30 → 07:00), para saber cuándo avisar, bloquear o dejar pasar.
+            - 🧹 **Lockscreen más claro**: la UI distingue mejor el bloqueo por arranque temprano del de apagado programado, y puede cerrar la pantalla cuando toca sin quedarse colgada.
+            - ⏸️ **Servicio pausado por defecto**: la configuración arranca en apagado/pausado, para que actives el servicio cuando estés listo y no por sorpresa.
 
             ---
 
