@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import "./App.css";
@@ -39,18 +39,19 @@ interface ShutdownLockscreenPayload {
 function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen | null>(null);
   const [config, setConfig] = useState<AppConfig | null>(null);
-  const [guardActivation, setGuardActivation] = useState<string | null>(null);
-  const [countdownSecs, setCountdownSecs] = useState(30);
+  const [bootGuardActivation, setBootGuardActivation] = useState<string | null>(null);
+  const [scheduledLockscreen, setScheduledLockscreen] = useState<ShutdownLockscreenPayload | null>(
+    null
+  );
+  const screenBeforeLockscreen = useRef<Screen>("main");
 
   useEffect(() => {
     async function bootstrap() {
       try {
         const launch = await invoke<LaunchModeResponse>("get_launch_mode");
         if (launch.mode === "guard" && launch.activation) {
-          setGuardActivation(launch.activation);
-          setCountdownSecs(30);
+          setBootGuardActivation(launch.activation);
           setCurrentScreen("lockscreen");
-          // Still load config for consistency, but UI is locked to guard
           const cfg = await invoke<AppConfig>("load_config");
           setConfig(cfg);
           return;
@@ -69,18 +70,33 @@ function App() {
   }, []);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    let unlistenShow: (() => void) | undefined;
+    let unlistenDismiss: (() => void) | undefined;
 
     listen<ShutdownLockscreenPayload>("show-shutdown-lockscreen", (event) => {
-      setGuardActivation(event.payload.activation_time);
-      setCountdownSecs(event.payload.countdown_secs);
-      setCurrentScreen("lockscreen");
+      setScheduledLockscreen(event.payload);
+      setCurrentScreen((prev) => {
+        if (prev && prev !== "lockscreen") {
+          screenBeforeLockscreen.current = prev;
+        }
+        return "lockscreen";
+      });
     }).then((fn) => {
-      unlisten = fn;
+      unlistenShow = fn;
+    });
+
+    listen("dismiss-shutdown-lockscreen", () => {
+      setScheduledLockscreen(null);
+      setCurrentScreen((prev) =>
+        prev === "lockscreen" ? screenBeforeLockscreen.current : prev
+      );
+    }).then((fn) => {
+      unlistenDismiss = fn;
     });
 
     return () => {
-      unlisten?.();
+      unlistenShow?.();
+      unlistenDismiss?.();
     };
   }, []);
 
@@ -103,12 +119,22 @@ function App() {
     return <div style={{ color: "white" }}>Cargando configuración...</div>;
   }
 
-  if (guardActivation) {
+  if (bootGuardActivation) {
     return (
       <Lockscreen
         mode="real"
-        activationTime={guardActivation}
-        initialCountdown={countdownSecs}
+        activationTime={bootGuardActivation}
+        initialCountdown={30}
+      />
+    );
+  }
+
+  if (scheduledLockscreen) {
+    return (
+      <Lockscreen
+        mode="real"
+        activationTime={scheduledLockscreen.activation_time}
+        initialCountdown={scheduledLockscreen.countdown_secs}
       />
     );
   }
@@ -127,7 +153,10 @@ function App() {
           config={config}
           onSave={saveConfig}
           onGoToAdvanced={() => setCurrentScreen("advanced")}
-          onPreviewLockscreen={() => setCurrentScreen("lockscreen")}
+          onPreviewLockscreen={() => {
+            screenBeforeLockscreen.current = "main";
+            setCurrentScreen("lockscreen");
+          }}
         />
       )}
       {currentScreen === "advanced" && (

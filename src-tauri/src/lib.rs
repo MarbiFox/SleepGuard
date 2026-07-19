@@ -182,6 +182,13 @@ fn monitor_loop(app: AppHandle) {
             continue;
         }
 
+        // Left the blocked/approach window (e.g. past activation) → dismiss UI.
+        if fired_for.is_some() {
+            restore_normal_window(&app);
+            let _ = app.emit("dismiss-shutdown-lockscreen", ());
+            fired_for = None;
+        }
+
         sleep_secs = if remaining > Duration::zero() && remaining <= Duration::minutes(1)
         {
             1
@@ -230,6 +237,17 @@ fn harden_window(app: &impl Manager<tauri::Wry>) {
         let _ = window.set_title("SleepGuard");
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+fn restore_normal_window(app: &impl Manager<tauri::Wry>) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_fullscreen(false);
+        let _ = window.set_always_on_top(false);
+        let _ = window.set_decorations(true);
+        let _ = window.set_closable(true);
+        let _ = window.set_skip_taskbar(false);
+        let _ = window.set_title("SleepGuard");
     }
 }
 

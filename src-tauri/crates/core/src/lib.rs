@@ -207,27 +207,42 @@ pub fn today_shutdown_target(cfg: &AppConfig, now: DateTime<Local>) -> Option<Da
     today.and_time(time).and_local_timezone(Local).single()
 }
 
+fn local_on(day: chrono::NaiveDate, time: NaiveTime) -> Option<DateTime<Local>> {
+    day.and_time(time).and_local_timezone(Local).single()
+}
+
 /// Activation that ends the blocked window after `shutdown`.
 ///
-/// Same calendar day if that day's activation is still after shutdown (e.g. 10:10 → 10:15);
-/// otherwise the next day's activation (e.g. 23:30 → 07:00 next morning).
+/// Prefers a same-day time strictly after `shutdown`:
+/// 1. the day's resolved activation (override or default),
+/// 2. else `activation_default` if it falls after shutdown (covers weekend
+///    overrides like "08:00" when Main sets a same-day reopen e.g. 10:35),
+/// 3. else the next day's resolved activation (overnight 23:30 → 07:00).
 pub fn activation_after_shutdown(
     cfg: &AppConfig,
     shutdown: DateTime<Local>,
 ) -> Option<DateTime<Local>> {
     let day = shutdown.date_naive();
-    let act_time = resolve_activation(cfg, day_key(day))?;
-    let same_day = day.and_time(act_time).and_local_timezone(Local).single()?;
-    if same_day > shutdown {
-        return Some(same_day);
+
+    if let Some(act_time) = resolve_activation(cfg, day_key(day)) {
+        if let Some(same_day) = local_on(day, act_time) {
+            if same_day > shutdown {
+                return Some(same_day);
+            }
+        }
+    }
+
+    if let Some(default_time) = parse_hhmm(&cfg.schedule.activation_default) {
+        if let Some(same_day_default) = local_on(day, default_time) {
+            if same_day_default > shutdown {
+                return Some(same_day_default);
+            }
+        }
     }
 
     let next_day = day + Duration::days(1);
     let next_time = resolve_activation(cfg, day_key(next_day))?;
-    next_day
-        .and_time(next_time)
-        .and_local_timezone(Local)
-        .single()
+    local_on(next_day, next_time)
 }
 
 /// When the lockscreen should appear for a scheduled shutdown.
@@ -551,6 +566,49 @@ mod tests {
             .single()
             .expect("valid local time");
         assert!(pending_shutdown_lockscreen(&cfg, now).is_none());
+    }
+
+    #[test]
+    fn lockscreen_none_well_after_activation_same_day() {
+        let cfg = cfg_with("10:30", "10:35", HashMap::new());
+        let now = Local
+            .with_ymd_and_hms(2026, 7, 13, 11, 30, 0)
+            .single()
+            .expect("valid local time");
+        assert!(pending_shutdown_lockscreen(&cfg, now).is_none());
+    }
+
+    /// Weekend morning override (08:00) must not extend the blocked window past
+    /// the Main default reopen (10:35) when shutdown is the same afternoon.
+    #[test]
+    fn lockscreen_uses_default_activation_when_day_override_is_before_shutdown() {
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "sun".into(),
+            OverrideConfig {
+                shutdown: "".into(),
+                activation: "08:00".into(),
+            },
+        );
+        let cfg = cfg_with("10:30", "10:35", overrides);
+        // Sunday 2026-07-19
+        let blocked = Local
+            .with_ymd_and_hms(2026, 7, 19, 10, 32, 0)
+            .single()
+            .expect("valid local time");
+        assert_eq!(day_key(blocked.date_naive()), "sun");
+        let trigger = pending_shutdown_lockscreen(&cfg, blocked).unwrap();
+        assert_eq!(
+            trigger.next_activation.time(),
+            NaiveTime::from_hms_opt(10, 35, 0).unwrap()
+        );
+        assert_eq!(trigger.next_activation.date_naive(), blocked.date_naive());
+
+        let after = Local
+            .with_ymd_and_hms(2026, 7, 19, 11, 30, 0)
+            .single()
+            .expect("valid local time");
+        assert!(pending_shutdown_lockscreen(&cfg, after).is_none());
     }
 
     #[test]
